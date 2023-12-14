@@ -54,7 +54,7 @@ struct Bond {
 ### initialize()
 
 ```javascript
- function initialize(address endToken_, address _lido, address _oracle) public initializer
+ function initialize(address endToken\_, address \_lido, address \_oracle) public initializer
 ```
 
 Function `initialize` is the first function to be ran after contract is defloyed. Has the `initializer` check on it that ensures that it can only be ran once.
@@ -112,7 +112,7 @@ Updates following once ran.
 ### setInterval()
 
 ```javascript
-function setInterval(uint256 _interval) public onlyOwner
+function setInterval(uint256 \_interval) public onlyOwner
 ```
 
 Takes \_interval as parameter and updates `interval` (uint) global >variable and emits the log.
@@ -609,7 +609,7 @@ This is how intended flow of the function `_deposit` is according to the code.
 
 </details>
 
-### withdraw()
+## withdraw()
 
 ```javascript
 function withdraw(uint256 tokenId) external nonReentrant
@@ -617,13 +617,15 @@ function withdraw(uint256 tokenId) external nonReentrant
 
 Takes `tokenId` as parameter, it doesn't hold logic for actual bond withdrawls but instead uses `_withdraw()` method to do it. Logs `Withdrawal` even after \_withdraw is finished.
 
-### \_withdraw()
+## \_withdraw()
 
 ```javascript
 function _withdraw(uint256 _tokenId) private
 ```
 
 This method is responsible for actually processing bond withdrawals and is executed inside function `withdraw()`
+
+<details>
 
 Info of the bond is used from `storage` using `tokenId` key and is presented as `bond` variable.
 
@@ -643,4 +645,103 @@ After these checks, `distributeRefractionFees()` will be called to `EndToken`.
         dayBondYieldShareIndex[bonds[_tokenId].maturity] = userBondYieldShareIndex[_tokenId];
 ```
 
-Here, in code above `bond` is set as withdrawn status.
+Here, in code above `bond` is set as `withdrawn` status, and then `withdraw()` is call on to `endTresury`.END Rewards as `reward` is calculated using `calculateBondRewardAmount` and gets `userBondYieldShareIndex` of `_tokenId`, this statement is set by `dayBondYieldShareIndex[bonds[_tokenId].maturity]`.
+
+Then in `EndTreasury` contract, `mintEndToUser` is called by `EnderBond` and mints END token to `msg.sender` (user in this case) for total `reward` amount of END tokens.
+
+It is checked if `rewardShareIndex` is not equal to `rewardSharePerUserIndex` of `_tokenId`,
+
+-   then `claimRefractionRewards()` is called using \_tokenId and its `bond`.refractionSIndex
+
+Check again if `rewardSharePerUserIndexSend` of `_token` is not equal to `rewardShareIndexSend`.
+
+-   `claimStakingReward` is called using \_tokenId and its `bond`.stakingSendIndex
+
+`userBondPrincipalAmount` on \_tokenId is subtracted from `totalBondPrincipalAmount`.
+
+<br>
+Finally these global mappings and state is updated.
+
+<details>
+
+```javascript
+userBondPrincipalAmount[_tokenId] == 0; // Bond principal amount of _tokenId
+delete userBondYieldShareIndex[_tokenId]; // sets to 0
+
+totalRewardPrincipal -= bond.depositPrincipal; //global variables are subtracted
+depositAmountRequired -= bond.depositPrincipal; //global variables are subtracted
+totalDeposit -= bond.principal; //global variables are subtracted
+amountRequired -= bond.principal; //global variables are subtracted
+```
+
+</details>
+
+Full code:
+
+<details>
+
+```javascript
+    function _withdraw(uint256 _tokenId) private {
+        Bond storage bond = bonds[_tokenId];
+        if (bond.withdrawn) revert BondAlreadyWithdrawn();
+        if (bondNFT.ownerOf(_tokenId) != msg.sender) revert NotBondUser();
+        if (block.timestamp <= bond.startTime + (bond.maturity * SECONDS_IN_DAY)) revert BondNotMatured();
+        // require(block.timestamp >= bond.startTime + (bond.maturity * SECONDS_IN_DAY), "Bond is not matured");
+        IEndToken(endToken).distributeRefractionFees();
+        // update current bond
+        bond.withdrawn = true;
+        endTreasury.withdraw(IEnderBase.EndRequest(msg.sender, bond.token, bond.principal), getLoopCount());
+        uint256 reward = calculateBondRewardAmount(_tokenId, bond.YieldIndex);
+        dayBondYieldShareIndex[bonds[_tokenId].maturity] = userBondYieldShareIndex[_tokenId];
+
+        endTreasury.mintEndToUser(msg.sender, reward);
+        if (rewardShareIndex != rewardSharePerUserIndex[_tokenId])
+            claimRefractionRewards(_tokenId, bond.refractionSIndex);
+        if (rewardSharePerUserIndexSend[_tokenId] != rewardShareIndexSend)
+            claimStakingReward(_tokenId, bond.stakingSendIndex);
+        totalBondPrincipalAmount -= userBondPrincipalAmount[_tokenId];
+
+        userBondPrincipalAmount[_tokenId] == 0;
+        delete userBondYieldShareIndex[_tokenId];
+
+        totalRewardPrincipal -= bond.depositPrincipal;
+        depositAmountRequired -= bond.depositPrincipal;
+        totalDeposit -= bond.principal;
+        amountRequired -= bond.principal;
+    }
+```
+
+</details>
+</details>
+
+## getLoopCount()
+
+```javascript
+ function getLoopCount() public returns (uint256)
+```
+
+This function is ran in both calls made to `endTreasury`, during both `_deposit` and `_withdraw`. It returns a `uint256` called `amountRequired`.
+
+This first calculates `currentDay` by making `block.timestamp` / `SECONDS_IN_DAY` (86400)
+
+Full code:
+
+<details>
+
+```javascript
+function getLoopCount() public returns (uint256) {
+        // if (msg.sender != address(endTreasury)) revert NotTreasury();
+        uint256 currentDay = block.timestamp / SECONDS_IN_DAY;
+        if (currentDay == lastDay) return amountRequired;
+        for (uint256 i = lastDay + 1; i <= currentDay; i++) {
+            if (availableFundsAtMaturity[i] != 0) amountRequired += availableFundsAtMaturity[i];
+            if (depositPrincipalAtMaturity[i] != 0) {
+                depositAmountRequired += depositPrincipalAtMaturity[i];
+            }
+        }
+        lastDay = currentDay;
+        return amountRequired;
+    }
+```
+
+</details>
