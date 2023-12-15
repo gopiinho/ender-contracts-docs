@@ -2,7 +2,41 @@
 
 This report serves the purpose of describing the code used in `EnderBond.sol` contract in common terms while also providing some techniacal information.
 
-EnderBond contract has several dependencies
+## Key Features
+
+#### 1.Bond Creation and Deposits:
+
+Users can deposit funds into a bond by specifying the principal amount, maturity date, bond fee, and the token used for the bond.
+Ether deposits are accepted by converting them into stETH through the Lido protocol.
+
+#### 2.Withdrawal:
+
+Users can withdraw their funds once the bond matures.
+Withdrawal is only allowed after the maturity date has passed.
+
+#### 3.Bond Fees:
+
+The contract supports self-set bond fees, allowing users to customize the fee percentage when creating a bond.
+
+#### 4.Interest Calculation:
+
+The contract calculates interest based on the maturity period and a dynamically changing interest rate.
+
+#### 5.Refraction Rewards:
+
+Users receive refraction rewards, which are distributed based on the total bond principal and the user's share of it.
+
+#### 6.Staking Rewards:
+
+Users receive staking rewards, which are distributed based on the total bond principal and the user's share of it.
+
+#### 7.Integration with External Contracts:
+
+The contract integrates with other contracts such as the END token, Lido protocol, and various interfaces for functionalities like treasury management and staking.
+
+#### 8.Bondable Tokens:
+
+The contract allows the owner to specify which tokens are bondable, preventing the creation of bonds with unsupported tokens.
 
 <!-- # Table of contents -->
 
@@ -22,16 +56,86 @@ EnderBond contract has several dependencies
 
 <summary><a href="#curriculum">Curriculum</a></summary> -->
 
+## Dependencies and Inheritance
+
+![alt text](dependencies.png "Dependencies")
+
 ## State Variables
 
-##### Mappings
+#### Mappings & Variables
 
--   `bondableTokens` (address => bool) - keeps track of bondable tokens
--   `bonds` (uint256 => Bond) - basically gives a token ID to individual bond.
+Below are all the state variables and mapping keeping track of `EnderBond` state.
+
 <details>
 
 ```javascript
-struct Bond {
+   mapping(address => bool) public bondableTokens;
+
+    /// @notice A mapping of bonds by token ID.
+    mapping(uint256 => Bond) public bonds;
+
+    mapping(uint256 => uint256) public rewardSharePerUserIndex;
+    mapping(uint256 => uint256) public rewardSharePerUserIndexSend;
+
+    mapping(uint256 => uint256) public userBondPrincipalAmount;
+    mapping(uint256 => uint256) public userBondYieldShareIndex; //s0
+    mapping(uint256 => uint256) public availableFundsAtMaturity;
+    mapping(uint256 => uint256) public depositPrincipalAtMaturity;
+
+    mapping(uint256 => uint256) public dayToRewardShareIndex;
+
+    mapping(uint256 => uint256) public dayRewardShareIndexForSend;
+
+    mapping(uint256 => uint256) public dayBondYieldShareIndex;
+
+    // mapping(uint256 => uint256[]) public dayToBondYieldShareUpdation;
+    mapping(uint256 => uint256) public secondsBondYieldShareIndex;
+    ////
+    mapping(uint256 => uint256[]) public dayToRefractionShareUpdation;
+    mapping(uint256 => uint256) public secondsRefractionShareIndex;
+
+    mapping(uint256 => uint256[]) public dayToRefractionShareUpdationSend;
+    mapping(uint256 => uint256) public secondsRefractionShareIndexSend;
+
+    uint256 public rewardShareIndex;
+    uint256 public rewardShareIndexSend;
+    uint256 public totalRewardPrincipal;
+    uint256 public rateOfChange;
+    uint256 public totalDeposit;
+    uint256 public bondYieldShareIndex;
+    uint256 public totalBondPrincipalAmount;
+    uint256 public endMint;
+    uint256 public bondYieldBaseRate;
+    uint256 public txFees;
+    uint256 public minDepositAmount;
+    uint256 public SECONDS_IN_DAY;
+    uint256 public lastDay;
+    uint256 private amountRequired;
+    uint256 private depositAmountRequired;
+    uint public interval;
+    uint public lastTimeStamp;
+
+    bool public isSet;
+
+    /// @notice An array containing all maturities.
+    uint256[] public maturities;
+
+    address private endSignature;
+    address private endToken;
+    address private sEndToken;
+    address public lido;
+    address public stEth;
+    address public keeper;
+    // address public endStaking;
+
+    IBondNFT private bondNFT;
+    IEnderTreasury private endTreasury;
+    IEnderOracle private enderOracle;
+    IEnderStaking private endStaking;
+
+    bool public bondFeeEnabled; // status of bond-fee feature (enabled/disabled)
+
+    struct Bond {
         bool withdrawn; // The withdrawn status of the bond
         uint256 principal; // The principal amount of the bond
         // uint256 endAmt; // The END token amount of deposit
@@ -51,10 +155,10 @@ struct Bond {
 
 ## Methods
 
-### initialize()
+## initialize()
 
 ```javascript
- function initialize(address endToken\_, address \_lido, address \_oracle) public initializer
+ function initialize(address endToken_, address _lido, address _oracle) public initializer
 ```
 
 Function `initialize` is the first function to be ran after contract is defloyed. Has the `initializer` check on it that ensures that it can only be ran once.
@@ -109,15 +213,15 @@ Updates following once ran.
 </details>
 </details>
 
-### setInterval()
+## setInterval()
 
 ```javascript
-function setInterval(uint256 \_interval) public onlyOwner
+function setInterval(uint256 _interval) public onlyOwner
 ```
 
 Takes \_interval as parameter and updates `interval` (uint) global >variable and emits the log.
 
-### setBool()
+## setBool()
 
 ```javascript
 function `setBool`(bool _bool) public onlyOwner
@@ -126,7 +230,7 @@ function `setBool`(bool _bool) public onlyOwner
 Sets state of `isSet` global variable.
 Is used in `claimStakingReward`, `claimRefractionRewards`, `calculateBondRewardAmount` as if (isSet) condition.
 
-### setAddress()
+## setAddress()
 
 ```javascript
 function setAddress(address _addr, uint256 _type) public onlyOwner
@@ -156,7 +260,7 @@ Takes `_addr` and `_type` as parameter and updates address of the token the type
 
 </details>
 
-### setMinDepAmount
+## setMinDepAmount
 
 ```javascript
 function setMinDepAmount(uint256 _amt) public onlyOwner
@@ -164,7 +268,7 @@ function setMinDepAmount(uint256 _amt) public onlyOwner
 
 Updates the minimum amount amount of any asset on `minDepositAmount`
 
-### setTxFees()
+## setTxFees()
 
 ```javascript
 function setTxFees(uint256 _txFees) public onlyOwner
@@ -172,7 +276,7 @@ function setTxFees(uint256 _txFees) public onlyOwner
 
 Updates `txFee` global variable.
 
-### setBondYieldBaseRate()
+## setBondYieldBaseRate()
 
 ```javascript
 function setBondYieldBaseRate(uint256 _bondYieldBaseRate) public onlyOwner
@@ -180,7 +284,7 @@ function setBondYieldBaseRate(uint256 _bondYieldBaseRate) public onlyOwner
 
 Owner updates the `bondYieldBaseRate` global variable.
 
-### getAddress()
+## getAddress()
 
 ```javascript
 function getAddress(uint256 _type) external view returns (address addr)
@@ -202,7 +306,7 @@ Function returns `address` of the called `_type`
 
 </details>
 
-### setBondFeeEndbled
+## setBondFeeEndbled
 
 ```javascript
 function `setBondFeeEnabled`(bool _enabled) public onlyOwner
@@ -210,7 +314,7 @@ function `setBondFeeEnabled`(bool _enabled) public onlyOwner
 
 Owner swtitches whether bondFee is enabled or not. Updates `bondFeeEnabled`
 
-### setBondableTokens()
+## setBondableTokens()
 
 ```javascript
  function setBondableTokens(address[] calldata tokens, bool enabled) external onlyOwner
@@ -218,7 +322,7 @@ Owner swtitches whether bondFee is enabled or not. Updates `bondFeeEnabled`
 
 Owner can use multiple tokens in form of `address[]` calldata tokens and can set whetcher they are bondable or not. Updates the mapping `bondableTokens`
 
-### getInterest()
+## getInterest()
 
 ```javascript
 function getInterest(uint256 maturity) public view returns (uint256 rate)
@@ -745,3 +849,725 @@ function getLoopCount() public returns (uint256) {
 ```
 
 </details>
+
+## deductFeesFromTransfer()
+
+```javascript
+function deductFeesFromTransfer(uint256 _tokenId) public
+```
+
+Checks of caller is `bondNFT` address and `userBondPrincipalAmount` is not equal to 0
+
+```javascript
+userBondPrincipalAmount[_tokenId] -= (userBondPrincipalAmount[_tokenId] * txFees) / 1000000;
+```
+
+Calculates the fee to be deduced.
+
+Full code:
+
+<details>
+
+```javascript
+  function deductFeesFromTransfer(uint256 _tokenId) public {
+        if (msg.sender != address(bondNFT)) {
+            revert NotBondNFT();
+        }
+        if (userBondPrincipalAmount[_tokenId] == 0) {
+            revert NotBondUser();
+        }
+        userBondPrincipalAmount[_tokenId] -= (userBondPrincipalAmount[_tokenId] * txFees) / 1000000;
+    }
+```
+
+</details>
+
+## epochRewardShareIndex()
+
+```javascript
+function epochRewardShareIndex(uint256 _reward) external
+```
+
+Checks of caller is `bondNFT` address and `userBondPrincipalAmount` is not equal to 0
+
+```javascript
+userBondPrincipalAmount[_tokenId] -= (userBondPrincipalAmount[_tokenId] * txFees) / 1000000;
+```
+
+Calculates the fee to be deduced.
+
+Full code:
+
+<details>
+
+```javascript
+    function epochRewardShareIndex(uint256 _reward) external {
+        // if (msg.sender != keeper) revert NotKeeper();
+        // if (totalRewardPrincipal == 0) revert WaitForFirstDeposit();
+
+        if (totalDeposit != 0) {
+            IERC20(endToken).transferFrom(endToken, address(this), _reward);
+            uint256 timeNow = block.timestamp / SECONDS_IN_DAY;
+
+            rewardShareIndex = (rewardShareIndex) + ((_reward * 10 ** 18) / (totalDeposit - amountRequired));
+            dayToRefractionShareUpdation[timeNow].push(block.timestamp);
+            dayToRewardShareIndex[timeNow] = rewardShareIndex;
+        }
+        emit RewardShareIndexUpdated(rewardShareIndex);
+    }
+```
+
+</details>
+
+## epochRewardShareIndex()
+
+```javascript
+function epochRewardShareIndex(uint256 _reward) external
+```
+
+Checks if `totalDeposit` is not 0 and
+
+-   Transfers `_reward' amount of `END`tokens from`endToken`contract`EnderBond`contract.  
+Gets current timestamp as`timeNow` - block.timestamp / 86400.
+
+`rewardShareIndex` is updated by
+
+```javascript
+rewardShareIndex = rewardShareIndex + (_reward * 10 ** 18) / (totalDeposit - amountRequired);
+```
+
+Following global states update
+
+```javascript
+dayToRefractionShareUpdation[timeNow].push(block.timestamp);
+dayToRewardShareIndex[timeNow] = rewardShareIndex;
+```
+
+Full code
+
+<details>
+
+```javascript
+    function epochRewardShareIndex(uint256 _reward) external {
+        // if (msg.sender != keeper) revert NotKeeper();
+        // if (totalRewardPrincipal == 0) revert WaitForFirstDeposit();
+
+        if (totalDeposit != 0) {
+            IERC20(endToken).transferFrom(endToken, address(this), _reward);
+            uint256 timeNow = block.timestamp / SECONDS_IN_DAY;
+
+            rewardShareIndex = (rewardShareIndex) + ((_reward * 10 ** 18) / (totalDeposit - amountRequired));
+            dayToRefractionShareUpdation[timeNow].push(block.timestamp);
+            dayToRewardShareIndex[timeNow] = rewardShareIndex;
+        }
+        emit RewardShareIndexUpdated(rewardShareIndex);
+    }
+
+```
+
+</details>
+
+## epochRewardShareIndexForSend()
+
+```javascript
+function epochRewardShareIndexForSend(uint256 _reward) public
+```
+
+Takes `_reward` as parameter and updates `rewardShareIndexSend` by
+
+```javascript
+rewardShareIndexSend =
+    rewardShareIndexSend + ((_reward * 10 ** 18) / totalDeposit - amountRequired);
+```
+
+Updates following storage variables:
+
+```javascript
+dayRewardShareIndexForSend[timeNow] = rewardShareIndexSend;
+dayToRefractionShareUpdationSend[timeNow].push(block.timestamp);
+secondsRefractionShareIndexSend[block.timestamp] = rewardShareIndexSend;
+```
+
+Full code:
+
+<details>
+
+```javascript
+  function epochRewardShareIndexForSend(uint256 _reward) public {
+        // if (msg.sender != keeper) revert NotKeeper();
+        uint256 timeNow = block.timestamp / SECONDS_IN_DAY;
+        rewardShareIndexSend = rewardShareIndexSend + ((_reward * 10 ** 18) / totalDeposit - amountRequired);
+        dayRewardShareIndexForSend[timeNow] = rewardShareIndexSend;
+        dayToRefractionShareUpdationSend[timeNow].push(block.timestamp);
+        secondsRefractionShareIndexSend[block.timestamp] = rewardShareIndexSend;
+    }
+```
+
+</details>
+
+## findClosestS()
+
+Info will be updated when this method is called.
+
+Full code:
+
+<details>
+
+```javascript
+   function findClosestS(uint256[] memory arr, uint256 _totalMaturity) internal pure returns (uint256 _s) {
+        uint256 low = 0;
+        uint256 high = arr.length - 1;
+        uint256 mid;
+
+        while (low <= high) {
+            mid = (low + high) / 2;
+
+            if (arr[mid] == _totalMaturity || (arr[mid + 1] > _totalMaturity && arr[mid] < _totalMaturity)) {
+                return arr[mid];
+            } else if ((arr[mid - 1] < _totalMaturity && arr[mid] > _totalMaturity)) {
+                return arr[mid - 1];
+            } else if (arr[mid] < _totalMaturity) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        if (arr[low] > _totalMaturity) {
+            return arr[low];
+        } else if (arr[high] < _totalMaturity) {
+            return arr[high];
+        } else {
+            return 0;
+        }
+    }
+
+```
+
+</details>
+
+## epochBondYieldShareIndex()
+
+```javascript
+function epochBondYieldShareIndex() public
+```
+
+Function gets ETH and END price from Oracle and calculates `bondYieldShareIndex`.
+
+<details>
+
+Function starts with getting `priceEth` and `priceEnd` from `enderOracle` and then gets current time `timeNow`.
+
+Then `finalRewardPrincipal` is calculated by subtracting `depositAmountRequired` from `totalBondPrincipalAmount`.
+
+```javascript
+uint256 finalRewardPrincipal = (totalBondPrincipalAmount - depositAmountRequired);
+```
+
+Updates `endMint` by calculating `_endMint` by multiplying ETH price by `finalRewardPrincipal` and dividing by END price and adding it back to current `endMint`.
+
+```javascript
+uint256 _endMint = (priceEth * finalRewardPrincipal) / priceEnd;
+        endMint += _endMint;
+```
+
+Followed by updating following
+
+```javascript
+  bondYieldShareIndex = bondYieldShareIndex + ((_endMint) / finalRewardPrincipal);
+        dayBondYieldShareIndex[timeNow] = bondYieldShareIndex;
+        secondsBondYieldShareIndex[timeNow] = bondYieldShareIndex;
+        emit BondYieldShareIndexUpdated(bondYieldShareIndex);
+```
+
+<details>
+
+```javascript
+   function epochBondYieldShareIndex() public {
+        // if (msg.sender != keeper) revert NotKeeper();
+
+        (uint256 priceEth, uint256 ethDecimal) = enderOracle.getPrice(address(0));
+        (uint256 priceEnd, uint256 endDecimal) = enderOracle.getPrice(address(endToken));
+        uint256 timeNow = block.timestamp / SECONDS_IN_DAY;
+        uint256 finalRewardPrincipal = (totalBondPrincipalAmount - depositAmountRequired);
+        uint256 _endMint = (priceEth * finalRewardPrincipal) / priceEnd;
+        endMint += _endMint;
+        bondYieldShareIndex = bondYieldShareIndex + ((_endMint) / finalRewardPrincipal);
+        dayBondYieldShareIndex[timeNow] = bondYieldShareIndex;
+        secondsBondYieldShareIndex[timeNow] = bondYieldShareIndex;
+        emit BondYieldShareIndexUpdated(bondYieldShareIndex);
+    }
+```
+
+</details>
+</details>
+
+## calculateRefractionData()
+
+```javascript
+function calculateRefractionData(uint256 _principle,uint256 _maturity, uint256 _tokenId) internal returns (uint256 avgRefractionIndex, uint256 rewardPrinciple)
+```
+
+Calculates pending rewards for the bond. Checks if method being called by `msg.sender` is the `.ownerOf` that \_tokenId.
+
+Average refraction index `avgRefractionIndex` is calculated by
+
+```javascript
+avgRefractionIndex = 100 + (rateOfChange * (_maturity - 1)) / (2 * 100);
+```
+
+Sets `rewardPrinciple` = (\_principle \* avgRefractionIndex) / 100. Updates `secondsRefractionShareIndex` of current `block.timestamp` to be equal to `rewardShareIndex`.
+
+<details>
+
+```javascript
+   function calculateRefractionData(
+        uint256 _principle,
+        uint256 _maturity,
+        uint256 _tokenId
+    ) internal returns (uint256 avgRefractionIndex, uint256 rewardPrinciple) {
+        if (bondNFT.ownerOf(_tokenId) != msg.sender) revert NotBondUser();
+        avgRefractionIndex = 100 + ((rateOfChange * (_maturity - 1)) / (2 * 100));
+        rewardPrinciple = (_principle * avgRefractionIndex) / 100;
+        secondsRefractionShareIndex[block.timestamp] = rewardShareIndex;
+
+        // pendingReward = rewardPrinciple * (rewardShareIndex - rewardSharePerUserIndex[_tokenId]);
+    }
+
+```
+
+</details>
+
+## calculateStakingPendingReward()
+
+```javascript
+function calculateStakingPendingReward(uint256 _principle,uint256 _maturity, uint256 _tokenId) internal returns (uint256 avgRefractionIndex, uint256 rewardPrincipleSend)
+```
+
+Calculates pending rewards for staking.Checks if method being called by `msg.sender` is the `.ownerOf` that \_tokenId. Average refraction Index of that specific token calculated by
+
+```javascript
+avgRefractionIndex = 100 + (rateOfChange * (_maturity - 1)) / (2 * 100);
+```
+
+and finally `rewardPrincipleSend` equals to `_principle` \* `avgRefractionIndex`.
+
+Full code:
+
+<details>
+
+```javascript
+  function calculateStakingPendingReward(
+        uint _principle,
+        uint256 _maturity,
+        uint256 _tokenId
+    ) internal view returns (uint256 avgRefractionIndex, uint256 rewardPrincipleSend) {
+        if (bondNFT.ownerOf(_tokenId) != msg.sender) revert NotBondUser();
+        avgRefractionIndex = 100 + ((rateOfChange * (_maturity - 1)) / (2 * 100));
+        rewardPrincipleSend = _principle * avgRefractionIndex;
+    }
+
+```
+
+</details>
+
+## claimStakingReward()
+
+```javascript
+function claimStakingReward(uint256 _tokenId, uint256 precalUsers) public nonReentrant
+```
+
+This method claims the staking rewards over a given `_tokenId`. Unique key here being \_tokenId.
+
+<details>
+Method starts off by creating a `temp` varible of type `Bond` and assigns it the value of the specfied bond from `bonds[_tokenId]` mapping. Checks if `precalUsers` is not equal to 0 and then
+
+-   assigns `rewardPrinciple` = `temp.principal`
+-   assigins `sEndTokenReward` as
+
+```javascript
+uint sEndTokenReward = ((rewardPrinciple * (precalUsers - rewardSharePerUserIndexSend[_tokenId])) / 1e18);
+```
+
+-   This `sEndTokenReward`, if its greater than 0, then we call `.transfer` on `sEndToken` contract, and sends `sEndTokenReward` amount of `sEND` tokens to caller of the function.
+
+Else, it checks if `ownerOf` the `_tokenId` is indeed the caller of tx and the `isSet` is set to be true.
+
+Assigns `rewardPrinciple` = `temp.principal`
+
+-   checks if `dayRewardShareIndexForSend` of that bonds maturity is 0
+    -   sets `sEndTokenReward` to be ((`rewardPrinciple` \*
+        (`rewardShareIndexSend` - `rewardSharePerUserIndexSend`[_tokenId])) / 1e18)
+        -   if `sEndTokenReward` is greater than 0, sEndToken contract is called and `sEndTokenReward` amount of sEND is transferred to the `user`
+
+```javascript
+if (dayRewardShareIndexForSend[bonds[_tokenId].maturity] == 0) {
+                    uint sEndTokenReward = ((rewardPrinciple *
+                        (rewardShareIndexSend - rewardSharePerUserIndexSend[_tokenId])) / 1e18);
+
+                    if (sEndTokenReward > 0) {
+                        ISEndToken(sEndToken).transfer(msg.sender, sEndTokenReward);
+                    }
+```
+
+-   Else it creates `sTime` and calls function `findClosestS`.
+-   `userS` is created and assiged the value of `secondsRefractionShareIndexSend[sTime]`
+-   `sEndTokenReward` is calculated using `userS` and `sEndToken is called for trasnfer `sEND`to user of amount`sEndTokenReward`.
+
+```javascript
+ uint256 sTime = findClosestS(
+                        dayToRefractionShareUpdationSend[bonds[_tokenId].maturity],
+                        ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                    );
+                    uint256 userS = secondsRefractionShareIndexSend[sTime];
+                    uint sEndTokenReward = ((rewardPrinciple * (userS - rewardSharePerUserIndexSend[_tokenId])) / 1e18);
+
+                    if (sEndTokenReward > 0) {
+                        ISEndToken(sEndToken).transfer(msg.sender, sEndTokenReward);
+                    }
+```
+
+Finally `rewardSharePerUserIndexSend` and `dayRewardShareIndexForSend` of that `_tokenId` is updated with `rewardShareIndexSend`.
+
+Full code:
+
+<details>
+
+```javascript
+function claimStakingReward(uint256 _tokenId, uint256 precalUsers) public nonReentrant {
+        Bond memory temp = bonds[_tokenId];
+        if (precalUsers != 0) {
+            // (, uint rewardPrinciple) = calculateStakingPendingReward(temp.principal, temp.maturity, _tokenId);
+            uint rewardPrinciple = temp.principal;
+            uint sEndTokenReward = ((rewardPrinciple * (precalUsers - rewardSharePerUserIndexSend[_tokenId])) / 1e18);
+            if (sEndTokenReward > 0) {
+                ISEndToken(sEndToken).transfer(msg.sender, sEndTokenReward);
+            }
+        } else {
+            if (bondNFT.ownerOf(_tokenId) != msg.sender) revert NotBondUser();
+            if (isSet) {
+                uint rewardPrinciple = temp.principal;
+                // (, uint rewardPrinciple) = calculateStakingPendingReward(temp.principal, temp.maturity, _tokenId);
+
+                if (dayRewardShareIndexForSend[bonds[_tokenId].maturity] == 0) {
+                    uint sEndTokenReward = ((rewardPrinciple *
+                        (rewardShareIndexSend - rewardSharePerUserIndexSend[_tokenId])) / 1e18);
+
+                    if (sEndTokenReward > 0) {
+                        ISEndToken(sEndToken).transfer(msg.sender, sEndTokenReward);
+                    }
+                } else {
+                    uint256 sTime = findClosestS(
+                        dayToRefractionShareUpdationSend[bonds[_tokenId].maturity],
+                        ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                    );
+                    uint256 userS = secondsRefractionShareIndexSend[sTime];
+                    uint sEndTokenReward = ((rewardPrinciple * (userS - rewardSharePerUserIndexSend[_tokenId])) / 1e18);
+
+                    if (sEndTokenReward > 0) {
+                        ISEndToken(sEndToken).transfer(msg.sender, sEndTokenReward);
+                    }
+                }
+                rewardSharePerUserIndexSend[_tokenId] = rewardShareIndexSend;
+                dayRewardShareIndexForSend[_tokenId] = rewardShareIndexSend;
+            } else {
+                revert NotAllowed();
+            }
+        }
+    }
+```
+
+</details>
+</details>
+
+## clainRefractionRewards()
+
+This method claims the refraction rewards for bonds over a given `_tokenId`. Unique key here being \_tokenId.
+
+<details>
+Method starts off by creating a `temp` varible of type `Bond` and assigns it the value of the specfied bond from `bonds[_tokenId]` mapping. Checks if `precalUsers` is not equal to 0 and then
+
+-   assigns `rewardPrinciple` = `temp.principal`
+
+-   Then we call `.transfer` on `EndToken` contract, and sends `((rewardPrinciple * (precalUsers - rewardSharePerUserIndex[_tokenId])) / 1e18)` amount of `END` tokens to caller of the function.
+
+```javascript
+ if (precalUsers != 0) {
+            uint rewardPrinciple = temp.principal;
+            // (, uint rewardPrinciple) = calculateRefractionData(temp.principal, temp.maturity, _tokenId);
+            IERC20(endToken).transfer(
+                msg.sender,
+                ((rewardPrinciple * (precalUsers - rewardSharePerUserIndex[_tokenId])) / 1e18)
+            );
+```
+
+Else, it checks if `isSet` is set to be true and makes few checks on that `tokenId`
+
+-   Makes sure caller of tx is the owner of that `bondNFT`
+-   Makes sure `userBondPrincipalAmount` of that token is not 0
+-   Makes sure `rewardShareIndex` is not equal to `rewardSharePerUserIndex[_tokenId]`
+
+Assigns `rewardPrinciple` = `temp.principal`
+
+```javascript
+   if (isSet) {
+                if (bondNFT.ownerOf(_tokenId) != msg.sender) revert NotBondUser();
+                if (userBondPrincipalAmount[_tokenId] == 0) revert NotBondUser();
+                if (rewardShareIndex == rewardSharePerUserIndex[_tokenId]) revert NoRewardCollected();
+                uint rewardPrinciple = temp.principal;
+```
+
+-   checks if `dayRewardShareIndexForSend` of that bonds maturity is 0
+    -   Calls `EndToken` contract to call `.transfer` and sends the `user` `((rewardPrinciple * (rewardShareIndex - rewardSharePerUserIndex[_tokenId])) / 1e18)` amount of `END` tokens.
+
+```javascript
+if (dayToRewardShareIndex[bonds[_tokenId].maturity] == 0) {
+                    IERC20(endToken).transfer(
+                        msg.sender,
+                        ((rewardPrinciple * (rewardShareIndex - rewardSharePerUserIndex[_tokenId])) / 1e18)
+                    );
+```
+
+-   Else it creates `sTime` and calls function `findClosestS`.
+-   `userS` is created and assiged the value of `secondsRefractionShareIndex[sTime]`
+-   `EndToken is called for trasnfer `END`to user of amount`((rewardPrinciple \* (userS - rewardSharePerUserIndex[_tokenId])) / 1e18)`
+
+```javascript
+ uint256 sTime = findClosestS(
+                        dayToRefractionShareUpdation[bonds[_tokenId].maturity],
+                        ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                    );
+                    uint256 userS = secondsRefractionShareIndex[sTime];
+                    IERC20(endToken).transfer(
+                        msg.sender,
+                        ((rewardPrinciple * (userS - rewardSharePerUserIndex[_tokenId])) / 1e18)
+                    );
+```
+
+Finally `rewardSharePerUserIndex` and `dayToRewardShareIndex` of that `_tokenId` is updated with `rewardShareIndexSend`.
+
+Full code:
+
+<details>
+
+```javascript
+function claimRefractionRewards(uint256 _tokenId, uint256 precalUsers) public nonReentrant {
+        Bond memory temp = bonds[_tokenId];
+        if (precalUsers != 0) {
+            uint rewardPrinciple = temp.principal;
+            // (, uint rewardPrinciple) = calculateRefractionData(temp.principal, temp.maturity, _tokenId);
+            IERC20(endToken).transfer(
+                msg.sender,
+                ((rewardPrinciple * (precalUsers - rewardSharePerUserIndex[_tokenId])) / 1e18)
+            );
+        } else {
+            if (isSet) {
+                if (bondNFT.ownerOf(_tokenId) != msg.sender) revert NotBondUser();
+                if (userBondPrincipalAmount[_tokenId] == 0) revert NotBondUser();
+                if (rewardShareIndex == rewardSharePerUserIndex[_tokenId]) revert NoRewardCollected();
+                uint rewardPrinciple = temp.principal;
+                // (, uint rewardPrinciple) = calculateRefractionData(temp.principal, temp.maturity, _tokenId);
+                if (dayToRewardShareIndex[bonds[_tokenId].maturity] == 0) {
+                    IERC20(endToken).transfer(
+                        msg.sender,
+                        ((rewardPrinciple * (rewardShareIndex - rewardSharePerUserIndex[_tokenId])) / 1e18)
+                    );
+                } else {
+                    uint256 sTime = findClosestS(
+                        dayToRefractionShareUpdation[bonds[_tokenId].maturity],
+                        ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                    );
+                    uint256 userS = secondsRefractionShareIndex[sTime];
+                    IERC20(endToken).transfer(
+                        msg.sender,
+                        ((rewardPrinciple * (userS - rewardSharePerUserIndex[_tokenId])) / 1e18)
+                    );
+                }
+
+                rewardSharePerUserIndex[_tokenId] = rewardShareIndex;
+                dayToRewardShareIndex[bonds[_tokenId].maturity] = rewardShareIndex;
+            } else {
+                revert NotAllowed();
+            }
+        }
+    }
+```
+
+</details>
+</details>
+
+## calculateBondRewardAmount()
+
+```javascript
+function calculateBondRewardAmount(uint256 _tokenId, uint256 precalUsers) internal view returns (uint256 _reward)
+```
+
+Calculates Bond rewards of a given `_tokenId`. Returns a `uint256` called `_reward`. This method is called inside the `_withdraw` method.
+
+<details>
+
+Checks if `precalUsers` is not equal to 0, then sets `_reward` by
+
+```javascript
+_reward = userBondPrincipalAmount[_tokenId] * (precalUsers - userBondYieldShareIndex[_tokenId]);
+```
+
+Else, confirms if `isSet` is active:
+
+-   if `(dayBondYieldShareIndex[bonds[_tokenId].maturity] == 0)` sets the `\_reward' by
+
+```javascript
+_reward =
+    userBondPrincipalAmount[_tokenId] * (bondYieldShareIndex - userBondYieldShareIndex[_tokenId]);
+```
+
+-   else calculates `userS` using following formula:
+
+```javascript
+        uint256 userS = secondsBondYieldShareIndex[
+           ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                    ] == 0
+                        ? secondsBondYieldShareIndex[
+                            ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime) - 1
+                        ]
+                        : secondsBondYieldShareIndex[
+                            ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                        ];
+                    _reward = (userBondPrincipalAmount[_tokenId] * (userS - userBondYieldShareIndex[_tokenId]));
+                }
+```
+
+Full code:
+
+```javascript
+    function calculateBondRewardAmount(uint256 _tokenId, uint256 precalUsers) internal view returns (uint256 _reward) {
+        if (precalUsers != 0) {
+            _reward = (userBondPrincipalAmount[_tokenId] * (precalUsers - userBondYieldShareIndex[_tokenId]));
+        } else {
+            if (isSet) {
+                if (dayBondYieldShareIndex[bonds[_tokenId].maturity] == 0) {
+                    _reward = (userBondPrincipalAmount[_tokenId] *
+                        (bondYieldShareIndex - userBondYieldShareIndex[_tokenId]));
+                } else {
+                    uint256 userS = secondsBondYieldShareIndex[
+                        ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                    ] == 0
+                        ? secondsBondYieldShareIndex[
+                            ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime) - 1
+                        ]
+                        : secondsBondYieldShareIndex[
+                            ((bonds[_tokenId].maturity * SECONDS_IN_DAY) + bonds[_tokenId].startTime)
+                        ];
+                    _reward = (userBondPrincipalAmount[_tokenId] * (userS - userBondYieldShareIndex[_tokenId]));
+                }
+            } else {
+                revert NotAllowed();
+            }
+        }
+    }
+```
+
+</details>
+
+## checkUpkeep()
+
+```javascript
+function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData)
+```
+
+Function returns `upkeepNeeded` as a boolean
+
+```javascript
+upkeepNeeded = block.timestamp - lastTimeStamp > interval;
+```
+
+## performUpkeep()
+
+```javascript
+function performUpkeep(bytes calldata /* performData */) external override
+```
+
+Function checks if `((block.timestamp - lastTimeStamp) > interval)` then sets `lastTimeStamp` as current `block.timestamp` and calls `epochBondYieldShareIndex()`.
+
+Lastly makes external call `epochStakingReward(stEth)` in `endStaking` contract.
+
+Full code:
+
+<details>
+
+```javascript
+   function performUpkeep(bytes calldata /* performData */) external override {
+        //We highly recommend revalidating the upkeep in the performUpkeep function
+        if ((block.timestamp - lastTimeStamp) > interval) {
+            lastTimeStamp = block.timestamp;
+            epochBondYieldShareIndex();
+            endStaking.epochStakingReward(stEth);
+        }
+        // We don't use the performData in this example. The performData is generated by the Keeper's call to your checkUpkeep function
+    }
+```
+
+</details>
+
+## setIndexesOfUser()
+
+```javascript
+function setIndexesOfUser(uint256 tokenId, uint256 refractionSIndex, uint256 stakingSendIndex, uint256 YieldIndex) external onlyOwner
+```
+
+Method is only called by `owner`, updates the `bonds` mappings properties of that certain `tokenId`.
+
+```javascript
+bonds[tokenId].refractionSIndex = refractionSIndex;
+bonds[tokenId].stakingSendIndex = stakingSendIndex;
+bonds[tokenId].YieldIndex = YieldIndex;
+```
+
+Full code:
+
+<details>
+
+```javascript
+  function setIndexesOfUser(
+        uint256 tokenId,
+        uint256 refractionSIndex,
+        uint256 stakingSendIndex,
+        uint256 YieldIndex
+    ) external onlyOwner {
+        bonds[tokenId].refractionSIndex = refractionSIndex;
+        bonds[tokenId].stakingSendIndex = stakingSendIndex;
+        bonds[tokenId].YieldIndex = YieldIndex;
+        emit RewardSharePerUserIndexSet(tokenId, rewardShareIndex);
+    }
+```
+
+</details>
+
+## resetEndMint()
+
+```javascript
+function resetEndMint() external
+```
+
+Checks if the method is only being called by `endTreasury` and resets `endMint` variable to 0.
+
+Full code:
+
+<details>
+
+```javascript
+  function resetEndMint() external {
+        require(msg.sender == address(endTreasury));
+        endMint = 0;
+    }
+```
+
+</details>
+
+## receive()
+
+```javascript
+receive() external payable {}
+```
+
+Allows smart contract to receive `msg.value`.
