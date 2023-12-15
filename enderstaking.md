@@ -2,15 +2,21 @@
 
 This report serves the purpose of describing the code used in `EnderStaking.sol` contract in common terms while also providing some techniacal information.
 
-## Key Features
+<br>
+
+##Key Features
 
 Let's the `user` stake and withdraw their `END` and `sEND` tokens.
 
-## Inheritance
+<br>
+
+# Inheritance
 
 Inherits from `Initializable` and `OwnableUpgradeable`.
 
-## State Variables
+<br>
+
+# State Variables
 
 <details>
 
@@ -30,7 +36,9 @@ Inherits from `Initializable` and `OwnableUpgradeable`.
 
 <br>
 
-## Methods
+# Methods
+
+<br>
 
 ## initialize()
 
@@ -43,8 +51,8 @@ Function `initialize` is the first function to be ran after contract is deployed
 <details>
 Takes 2 parameters -
 
--   `_end` - Sets address of END token
--   `_sEnd` - Sets address of sEND token
+- `_end` - Sets address of END token
+- `_sEnd` - Sets address of sEND token
 
 Updates following once ran.
 
@@ -55,6 +63,8 @@ Updates following once ran.
 
  </details>
 
+ <br>
+
 ## setAddress()
 
 ```javascript
@@ -62,6 +72,10 @@ function setAddress(address _addr, uint256 _type) public onlyOwner
 ```
 
 Takes `_addr` and `_type` as parameter and updates address of the token the type presents. Types are shown in full function below.
+
+<br>
+
+Full code:
 
 <details>
 
@@ -83,6 +97,8 @@ Takes `_addr` and `_type` as parameter and updates address of the token the type
 
 </details>
 
+<br>
+
 ## setBondRewardPercentage()
 
 ```javascript
@@ -92,6 +108,8 @@ function setBondRewardPercentage(uint256 percent) external onlyOwner
 Method can only be called by `onlyOwner` and takes `percent` as parameter. Checks if `perfect` is not being passed as 0 and updates `bondRewardPercentage`.
 
 <details>
+
+<br>
 
 Full code:
 
@@ -105,6 +123,8 @@ Full code:
 ```
 
 </details>
+
+<br>
 
 ## stake()
 
@@ -120,10 +140,10 @@ First makes sure `amount` is not 0.
 
 Performs a check if `balanceOf` the `EnderStaking` (address(this)) is 0 for `endToken`:
 
--   calls `transferFrom` on `endToken`, sending END tokens from `user`, to `EnderStaking` contract for total `amount` number of tokens.
--   calls `epochStakingReward()` using `stETH` as asset.
--   `sEND` amount as `sEndAmount` is calculated by calling `calculateSEndTokens(amount)`.
--   the returned amount of `sEndAmount` is minted for `user`.
+- calls `transferFrom` on `endToken`, sending END tokens from `user`, to `EnderStaking` contract for total `amount` number of tokens.
+- calls `epochStakingReward()` using `stETH` as asset.
+- `sEND` amount as `sEndAmount` is calculated by calling `calculateSEndTokens(amount)`.
+- the returned amount of `sEndAmount` is minted for `user`.
 
 ```javascript
   if (ISEndToken(endToken).balanceOf(address(this)) == 0) {
@@ -137,9 +157,9 @@ Performs a check if `balanceOf` the `EnderStaking` (address(this)) is 0 for `end
 
 Else if `balanceOf` the `EnderStaking` (address(this)) is not 0:
 
--   calls `transferFrom` on `endToken`, sending END tokens from `user`, to `EnderStaking` contract for total `amount` number of tokens.
--   `sEND` amount as `sEndAmount` is calculated by calling `calculateSEndTokens(amount)`.
--   the returned amount of `sEndAmount` is minted for `user`.
+- calls `transferFrom` on `endToken`, sending END tokens from `user`, to `EnderStaking` contract for total `amount` number of tokens.
+- `sEND` amount as `sEndAmount` is calculated by calling `calculateSEndTokens(amount)`.
+- the returned amount of `sEndAmount` is minted for `user`.
 
 ```javascript
 else {
@@ -152,6 +172,8 @@ else {
 ```
 
 Emits `Stake(msg.sender, amount)`
+
+<br>
 
 Full code:
 
@@ -182,6 +204,8 @@ Full code:
 </details>
 </details>
 
+<br>
+
 ## withdraw()
 
 ```javascript
@@ -192,10 +216,12 @@ Function lets `user` withdraw their staked `END` tokens and instead burns `sEND`
 
 Starts off with checking if the `amount` argument in this call is not 0 and also the `balanceOf` the `user` for `sEndToken` is greater than `amount`.
 
--   Calls ` epochStakingReward(stEth)` using sTEth as asset.
--   Calculates `reward` by calling `claimRebaseValue(amount)`
--   Transfers `END` token to `user` for `reward` amount.
--   Burns `sEND` from `user` address for `amount` number of tokens.
+- Calls ` epochStakingReward(stEth)` using sTEth as asset.
+- Calculates `reward` by calling `claimRebaseValue(amount)`
+- Transfers `END` token to `user` for `reward` amount.
+- Burns `sEND` from `user` address for `amount` number of tokens.
+
+<br>
 
 Full code:
 
@@ -218,6 +244,8 @@ Full code:
 
 </details>
 
+<br>
+
 ## epochStakingReward()
 
 ```javascript
@@ -226,9 +254,147 @@ function epochStakingReward(address _asset) public
 
 Method accepts `_asset` as an address and calculates staking rewards for that epoch.
 
+<details>
 Calculates `totalRewards` by calling `stakingRebasingReward(_asset)` on `enderTreasury` contract, and calculates `rw2` by multiplying that `totalRewards` and `bondRewardPercentage` and dividing that by 100.
 
 ```javascript
 uint256 totalReward = IEnderTreasury(enderTreasury).stakeRebasingReward(_asset);
 uint256 rw2 = (totalReward * bondRewardPercentage) / 100;
 ```
+
+uint256 `sendTokens` the amount of sEND that will be minted to `enderBond` contract. END tokens are of `totalRewards` amount is minted in `EnderStaking` contract.
+This amount of sEND `sendTokens` is calculated via calling `EnderStaking::calculateSEndTokens(rw2)` and using `rw2` which we addressed earlier.
+
+```javascript
+uint256 sendTokens = calculateSEndTokens(rw2);
+        ISEndToken(sEndToken).mint(enderBond, sendTokens);
+        ISEndToken(endToken).mint(address(this), totalReward);
+```
+
+`EnderBond::epochRewardShareIndexForSend(sendTokens)` is called inside `enderBond` contract and `calculateRebaseIndex()` is called.
+
+Method ends by emitting `EpochStakingReward`(`_asset`, `totalReward`, `rw2`, `sendTokens`)
+
+<br>
+Full code:
+
+<details>
+
+```javascript
+function epochStakingReward(address _asset) public {
+        // if (msg.sender != keeper) revert NotKeeper();
+        uint256 totalReward = IEnderTreasury(enderTreasury).stakeRebasingReward(
+            _asset
+        );
+        uint256 rw2 = (totalReward * bondRewardPercentage) / 100;
+
+        uint256 sendTokens = calculateSEndTokens(rw2);
+        ISEndToken(sEndToken).mint(enderBond, sendTokens);
+        ISEndToken(endToken).mint(address(this), totalReward);
+        IEnderBond(enderBond).epochRewardShareIndexForSend(sendTokens);
+        calculateRebaseIndex();
+        emit EpochStakingReward(_asset, totalReward, rw2, sendTokens);
+    }
+
+```
+
+</details>
+</details>
+
+<br>
+
+## calculateSEndTokens()
+
+```javascript
+function calculateSEndTokens(
+        uint256 _endAmount
+    ) public view returns (uint256 sEndTokens)
+```
+
+This method is responsible for calculating the amount of `sEND` to be minted in both `stake()` and `epochStakingReward()`. It takes uint256 `_endAmount` as parameter and returns `sEndTokens` of the same type.
+
+<details>
+
+It starts by checking if rebasingIndex is equal to 0. In this case `sEndTokens` is equal to `_endAmount`.
+
+Else `sEndTokens` is calculated by (`_endAmount` / `rebasingIndex`)
+<br>
+Full code:
+
+<details>
+
+```javascript
+if (rebasingIndex == 0) {
+  console.log("I'm here", _endAmount)
+  sEndTokens = _endAmount
+  return sEndTokens
+} else {
+  console.log('else', _endAmount, rebasingIndex)
+  sEndTokens = _endAmount / rebasingIndex
+  return sEndTokens
+}
+```
+
+</details>
+
+</details>
+
+<br>
+
+## calculateRebaseIndex()
+
+```javascript
+function calculateRebaseIndex() internal
+```
+
+This method calculates the rebasing index.
+
+Gets `endBalStaking` which is total END being staked currently, and total supply of of sEND tokens as `sEndTotalSupply`.
+Makes a check if either of those values are 0 then sets it as `1`. Else `rebasingIndex` is calculated as (`endBalStaking` \* 1e18) / `sEndTotalSupply`;
+<br>
+Full code:
+
+<details>
+
+```javascript
+function calculateRebaseIndex() internal {
+        uint256 endBalStaking = ISEndToken(endToken).balanceOf(address(this));
+        uint256 sEndTotalSupply = ISEndToken(sEndToken).totalSupply();
+        if (endBalStaking == 0 || sEndTotalSupply == 0) {
+            rebasingIndex = 1;
+        } else {
+            rebasingIndex = (endBalStaking * 10 ** 18) / sEndTotalSupply;
+        }
+    }
+```
+
+</details>
+
+<br>
+
+## claimRebaseValue()
+
+```javascript
+function claimRebaseValue(
+        uint256 _sendAMount
+    ) internal view returns (uint256 reward)
+```
+
+This method takes in `_sendAmount` as input and returns calculated `reward`.
+
+This `reward` is calculated by (`_sendAmount` \* `rebaseIndex`).
+
+<br>
+Full code:
+
+<details>
+
+```javascript
+function claimRebaseValue(
+        uint256 _sendAMount
+    ) internal view returns (uint256 reward) {
+        reward = (_sendAMount * rebasingIndex);
+    }
+```
+
+</details>
