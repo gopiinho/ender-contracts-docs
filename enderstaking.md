@@ -43,7 +43,7 @@ Inherits from `Initializable` and `OwnableUpgradeable`.
 ## initialize()
 
 ```javascript
-    function initialize(address _end, address _sEnd) external initializer
+function initialize(address _end, address _sEnd) external initializer
 ```
 
 Function `initialize` is the first function to be ran after contract is deployed. Has the `initializer` check on it that ensures that it can only be ran once.
