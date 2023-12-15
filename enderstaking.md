@@ -6,7 +6,7 @@ This report serves the purpose of describing the code used in `EnderStaking.sol`
 
 ## Key Features
 
-Let's the `user` stake and withdraw their `END` and `sEND` tokens.
+Let's the `user` stake and withdraw their `END` tokens in exchange for `sEND`. It is also responsible for calculating the `rebasingIndex`.
 
 <br>
 
