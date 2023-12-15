@@ -4,7 +4,7 @@ This report serves the purpose of describing the code used in `EnderStaking.sol`
 
 <br>
 
-##Key Features
+## Key Features
 
 Let's the `user` stake and withdraw their `END` and `sEND` tokens.
 
