@@ -6,7 +6,7 @@ This report serves the purpose of describing the code used in `EnderTreasury.sol
 
 ## Key Features
 
-Purpose of `EnderTreasury` is to hold the bond assets.
+Purpose of `EnderTreasury` is to hold the bond assets, deposit them to strategies and keeping track of the assets and mint END tokens for the user.
 
 <br>
 
@@ -415,3 +415,498 @@ function _transferFunds(
 </details>
 
 <br>
+
+## stakeRebasingReward()
+
+```javascript
+function stakeRebasingReward(address _tokenAddress) public onlyStaking returns (uint256 rebaseReward)
+```
+
+This method is only callable by `EnderStaking` contract. Takes `_tokenAddress` as input and returns a uint256 `rebaseReward`.
+
+<details>
+
+Starts by calling `EnderBond::endMint` to get `bondReturn` and `depositReturn` is calculated by calling `calculateDepositReturn` with that `tokenAddress`. Balance of that token in `EnderTreasury` is fetched as `balanceLastEpoch`.
+
+```javascript
+uint256 bondReturn = IEnderBond(enderBond).endMint();
+uint256 depositReturn = calculateDepositReturn(_tokenAddress);
+balanceLastEpoch = IERC20(_tokenAddress).balanceOf(address(this));
+```
+
+Its checked if `depositReturn` is 0
+
+```javascript
+if (depositReturn == 0) {
+            epochWithdrawl = 0;
+            epochDeposit = 0;
+            rebaseReward = 0;
+            address receiptToken = strategyToReceiptToken[instadapp];
+            instaDappLastValuation = IInstadappLite(instadapp)
+                .viewStinstaTokens(
+                    IERC20(receiptToken).balanceOf(address(this))
+                );
+            instaDappWithdrawlValuations = 0;
+            instaDappDepositValuations = 0;
+        }
+```
+
+Else , we get `ethPrice` and `endPrice` from `enderOracle`.
+
+`depositReturn` is updated with (`ethPrice` \* `depositReturn`) / (10 \*\* `ethDecimal`)
+
+while `bondReturn` is updated with (`priceEnd` \* `bondReturn`) / (10 \*\* `endDecimal`)
+
+Rebase reward `rebaseReward` is calculated as below:
+
+```javascript
+rebaseReward =
+  depositReturn + (depositReturn * nominalYield) / 10000 - bondReturn
+
+rebaseReward = (rebaseReward * 10 ** ethDecimal) / priceEnd
+```
+
+States are updated and `EnderBond::resetEndMint` is called.
+
+Full code:
+
+<details>
+
+```javascript
+function stakeRebasingReward(
+        address _tokenAddress
+    ) public onlyStaking returns (uint256 rebaseReward) {
+        uint256 bondReturn = IEnderBond(enderBond).endMint();
+        uint256 depositReturn = calculateDepositReturn(_tokenAddress);
+        balanceLastEpoch = IERC20(_tokenAddress).balanceOf(address(this));
+        if (depositReturn == 0) {
+            epochWithdrawl = 0;
+            epochDeposit = 0;
+            rebaseReward = 0;
+            address receiptToken = strategyToReceiptToken[instadapp];
+            instaDappLastValuation = IInstadappLite(instadapp)
+                .viewStinstaTokens(
+                    IERC20(receiptToken).balanceOf(address(this))
+                );
+            instaDappWithdrawlValuations = 0;
+            instaDappDepositValuations = 0;
+        } else {
+            //we get the eth price in 8 decimal and  depositReturn= 18 decimal  bondReturn = 18decimal
+            (uint256 ethPrice, uint256 ethDecimal) = enderOracle.getPrice(
+                address(0)
+            );
+            (uint256 priceEnd, uint256 endDecimal) = enderOracle.getPrice(
+                address(endToken)
+            );
+            depositReturn = (ethPrice * depositReturn) / (10 ** ethDecimal);
+            bondReturn = (priceEnd * bondReturn) / (10 ** endDecimal);
+
+            rebaseReward = (
+                (depositReturn +
+                    ((depositReturn * nominalYield) / 10000) -
+                    bondReturn)
+            );
+
+            rebaseReward = ((rebaseReward * 10 ** ethDecimal) / priceEnd);
+
+            epochWithdrawl = 0;
+            epochDeposit = 0;
+            IEnderBond(enderBond).resetEndMint();
+            address receiptToken = strategyToReceiptToken[instadapp];
+            instaDappLastValuation = IInstadappLite(instadapp)
+                .viewStinstaTokens(
+                    IERC20(receiptToken).balanceOf(address(this))
+                );
+            instaDappWithdrawlValuations = 0;
+            instaDappDepositValuations = 0;
+        }
+    }
+```
+
+</details>
+</details>
+
+<br>
+
+## depositInStrategy()
+
+```javascript
+function depositInStrategy(address _asset, address _strategy, uint256 _depositAmt) public validStrategy(strategy)
+```
+
+This method deposits the available funds to strategies. Takes `_asset` address, `_strategy` address and `_depositAmt` of tokens. Has a `validStrategy(strategy)`, so it checks if a strategy is allowed.
+
+<details>
+
+Checks if `_depositAmount` us not 0, the `_asset` and `_strategy` is not address(0).
+
+`_asset` is deposited to the strategy address.
+
+```javascript
+if (_strategy == instadapp) {
+  IERC20(_asset).approve(_strategy, _depositAmt)
+  IInstadappLite(instadapp).deposit(_depositAmt) // note for testing we changed the function sig.
+  instaDappDepositValuations += _depositAmt
+} else if (_strategy == lybraFinance) {
+  IERC20(_asset).approve(lybraFinance, _depositAmt)
+  ILybraFinance(lybraFinance).depositAssetToMint(_depositAmt, 0)
+} else if (_strategy == eigenLayer) {
+  //Todo will add the instance while going on mainnet.
+}
+```
+
+`totalAssetStakedInStrategy` of that asset is updated with `_depositAmt` and emits `StrategyDeposit`(`_asset`, `_strategy`, `_depositAmt`).
+
+Full code:
+
+<details>
+
+```javascript
+    function depositInStrategy(
+        address _asset,
+        address _strategy,
+        uint256 _depositAmt
+    ) public validStrategy(strategy) {
+        // stEthBalBeforeStDep = IERC20(_asset).balanceOf(address(this));
+        if (_depositAmt == 0) revert ZeroAmount();
+        if (_asset == address(0) || _strategy == address(0))
+            revert ZeroAddress();
+        if (_strategy == instadapp) {
+            IERC20(_asset).approve(_strategy, _depositAmt);
+            IInstadappLite(instadapp).deposit(_depositAmt); // note for testing we changed the function sig.
+            instaDappDepositValuations += _depositAmt;
+        } else if (_strategy == lybraFinance) {
+            IERC20(_asset).approve(lybraFinance, _depositAmt);
+            ILybraFinance(lybraFinance).depositAssetToMint(_depositAmt, 0);
+        } else if (_strategy == eigenLayer) {
+            //Todo will add the instance while going on mainnet.
+        }
+        totalAssetStakedInStrategy[_asset] += _depositAmt;
+        emit StrategyDeposit(_asset, _strategy, _depositAmt);
+    }
+```
+
+</details>
+</details>
+
+<br>
+
+## withdrawFromStrategy()
+
+```javascript
+function withdrawFromStrategy(address _asset, address _strategy, uint256 _withdrawAmt) public validStrategy(_strategy) returns (uint256 _returnAmount)
+```
+
+This method withdraw the available funds from strategies. Takes `_asset` address, `_strategy` address and `_depositAmt` of tokens. Has a `validStrategy(strategy)`, so it checks if a strategy is allowed.
+
+<details>
+
+Checks if `_depositAmount` us not 0, the `_asset` and `_strategy` is not address(0).
+
+`receiptToken` is set from `strategyToReceiptToken`[`_strategy`];
+
+Withdraw request is made to the `_strategy` to `receiptToken` address.
+
+```javascript
+if (_strategy == instadapp) {
+  //Todo set the asset as recipt tokens and need to check the assets ratio while depolying on mainnet
+  _withdrawAmt = IInstadappLite(instadapp).viewStinstaTokensValue(_withdrawAmt)
+  IERC20(receiptToken).approve(instadapp, _withdrawAmt)
+  _returnAmount = IInstadappLite(instadapp).withdrawStinstaTokens(_withdrawAmt)
+  instaDappWithdrawlValuations += _returnAmount
+} else if (_strategy == lybraFinance) {
+  IERC20(receiptToken).approve(lybraFinance, _withdrawAmt)
+  _returnAmount = ILybraFinance(lybraFinance).withdraw(
+    address(this),
+    _withdrawAmt
+  )
+}
+```
+
+Updates the balances and emits log.
+
+```javascript
+totalAssetStakedInStrategy[_asset] -= _withdrawAmt;
+        if (_returnAmount > 0) {
+            totalRewardsFromStrategy[_asset] += _returnAmount;
+        }
+        emit StrategyWithdraw(_asset, _strategy, _returnAmount);
+```
+
+Full code:
+
+<details>
+
+```javascript
+function withdrawFromStrategy(
+        address _asset,
+        address _strategy,
+        uint256 _withdrawAmt
+    ) public validStrategy(_strategy) returns (uint256 _returnAmount) {
+        if (_withdrawAmt == 0) revert ZeroAmount();
+        if (_asset == address(0) || _strategy == address(0))
+            revert ZeroAddress();
+        address receiptToken = strategyToReceiptToken[_strategy];
+        if (_strategy == instadapp) {
+            //Todo set the asset as recipt tokens and need to check the assets ratio while depolying on mainnet
+            _withdrawAmt = IInstadappLite(instadapp).viewStinstaTokensValue(
+                _withdrawAmt
+            );
+            IERC20(receiptToken).approve(instadapp, _withdrawAmt);
+            _returnAmount = IInstadappLite(instadapp).withdrawStinstaTokens(
+                _withdrawAmt
+            );
+            instaDappWithdrawlValuations += _returnAmount;
+        } else if (_strategy == lybraFinance) {
+            IERC20(receiptToken).approve(lybraFinance, _withdrawAmt);
+            _returnAmount = ILybraFinance(lybraFinance).withdraw(
+                address(this),
+                _withdrawAmt
+            );
+        }
+        totalAssetStakedInStrategy[_asset] -= _withdrawAmt;
+        if (_returnAmount > 0) {
+            totalRewardsFromStrategy[_asset] += _returnAmount;
+        }
+        emit StrategyWithdraw(_asset, _strategy, _returnAmount);
+    }
+```
+
+</details>
+</details>
+
+<br>
+
+## withdraw()
+
+```javascript
+function withdraw(EndRequest memory param, uint256 amountRequired) external onlyBond
+```
+
+This method is called by `enderBond`, Uses `EndRequest` data structure mentioned earlier and `amountRequired` as both inputs.
+
+Checks if `amountRequired` greater than `balanceOf` that `stakingToken` in our treasury contract. Then `withdrawFromStrategy` is called to writhdraw funds from the strategy itself.
+
+```javascript
+if (amountRequired > IERC20(param.stakingToken).balanceOf(address(this))) {
+  withdrawFromStrategy(param.stakingToken, priorityStrategy, amountRequired)
+}
+```
+
+`epochWithdrawal` is updated by adding `param.tokenAmt` and `fundsInfo` of that `param.stakingToken` is reduced by `param.tokenAmt`.
+
+Treasury then calls `_transferFunds` to send the transaction that sends the assets back to the user, and emits `TreasuryWithdraw`.
+
+```javascript
+epochWithdrawl += param.tokenAmt;
+fundsInfo[param.stakingToken] -= param.tokenAmt;
+
+// bond token transfer
+ _transferFunds(param.account, param.stakingToken, param.tokenAmt);
+emit TreasuryWithdraw(param.stakingToken, param.tokenAmt);
+```
+
+Full code:
+
+<details>
+
+```javascript
+function withdraw(
+        EndRequest memory param,
+        uint256 amountRequired
+    ) external onlyBond {
+        if (
+            amountRequired > IERC20(param.stakingToken).balanceOf(address(this))
+        ) {
+            withdrawFromStrategy(
+                param.stakingToken,
+                priorityStrategy,
+                amountRequired
+            );
+        }
+        epochWithdrawl += param.tokenAmt;
+        fundsInfo[param.stakingToken] -= param.tokenAmt;
+
+        // bond token transfer
+        _transferFunds(param.account, param.stakingToken, param.tokenAmt);
+        emit TreasuryWithdraw(param.stakingToken, param.tokenAmt);
+    }
+```
+
+</details>
+
+<br>
+
+## collect()
+
+```javascript
+function collect(address account, uint256 amount) external onlyBond
+```
+
+This method is called by `enderBond` contract and transfers END tokens of `amount` as rewards to `account` user. Emits `Collect` event.
+
+```javascript
+function collect(address account, uint256 amount) external onlyBond {
+        IERC20(endToken).transfer(account, amount);
+        emit Collect(account, amount);
+    }
+```
+
+ <br>
+
+## mintEndToUser()
+
+```javascript
+function mintEndToUser(address _to, uint256 _amount) external onlyBond
+```
+
+This method is called by `enderBond` contract and mints END tokens to `_to` address of `_amount`. Emits `MintEndToUser` event.
+
+```javascript
+function mintEndToUser(address _to, uint256 _amount) external onlyBond {
+        ///just return for temp  should changethe
+        IEndToken(endToken).mint(_to, _amount);
+        emit MintEndToUser(_to, _amount);
+    }
+```
+
+ <br>
+
+## calculateTotalReturn()
+
+```javascript
+function calculateTotalReturn(address _stEthAddress) internal view returns (uint256 totalReturn)
+```
+
+This method calculates total return `totalReturn` of a given asset. Takes `_stEthAddress` as input for asset address.
+
+`Note`: It would be better to update `_stEthAddress`to something like `_tokenAddr` to make it not look like it only accepts stETH as address.
+
+<details>
+
+Starts with creating couple variables as `stReturn` a uint256 and `receiptToken` which is the address. Then we calculate the balance of this `receiptToken` by calling `balanceOf` of token, on our `EnderTreasury`.
+
+```javascript
+uint256 stReturn;
+        address receiptToken = strategyToReceiptToken[instadapp];
+        uint256 receiptTokenAmount = IInstadappLite(receiptToken).balanceOf(
+            address(this)
+        );
+```
+
+Balance of the asset in question `receiptToken`'s balance of `EnderTreasury` contract is checked to be greater than 0:
+
+- Then `stReturn` is calculated by calling `viewStinstaTokems` on `receiptToken` address + `instaDappWithdrawlValuations` - `instaDappDepositValuations` - `instaDappLastValuation`.
+
+```javascript
+if (IInstadappLite(receiptToken).balanceOf(address(this)) > 0) {
+  stReturn =
+    IInstadappLite(receiptToken).viewStinstaTokens(receiptTokenAmount) +
+    instaDappWithdrawlValuations -
+    instaDappDepositValuations -
+    instaDappLastValuation
+}
+```
+
+Finally `totalReturn` is calculated by checking balance of passed `_stEthAddress` token address on our `EnderTreasury` contract + `epochWithddrawal` + `instaDappDepositValuations`- `stReturn` - `epochDeposit` - `balanceLastEpoch`.
+
+```javascript
+totalReturn =
+  IERC20(_stEthAddress).balanceOf(address(this)) +
+  epochWithdrawl +
+  instaDappDepositValuations +
+  stReturn -
+  epochDeposit -
+  balanceLastEpoch
+```
+
+Full code:
+
+<details>
+
+```javascript
+function calculateTotalReturn(
+        address _stEthAddress
+    ) internal view returns (uint256 totalReturn) {
+        uint256 stReturn;
+        address receiptToken = strategyToReceiptToken[instadapp];
+        uint256 receiptTokenAmount = IInstadappLite(receiptToken).balanceOf(
+            address(this)
+        );
+        if (IInstadappLite(receiptToken).balanceOf(address(this)) > 0) {
+            stReturn =
+                IInstadappLite(receiptToken).viewStinstaTokens(
+                    receiptTokenAmount
+                ) +
+                instaDappWithdrawlValuations -
+                instaDappDepositValuations -
+                instaDappLastValuation;
+        }
+        //todo add stlogic
+        totalReturn =
+            IERC20(_stEthAddress).balanceOf(address(this)) +
+            epochWithdrawl +
+            instaDappDepositValuations +
+            stReturn -
+            epochDeposit -
+            balanceLastEpoch;
+    }
+```
+
+</details>
+</details>
+
+<br>
+
+## calculateDepositReturn()
+
+```javascript
+function calculateDepositReturn(address _stEthAddress) public view returns (uint256 depositReturn)
+```
+
+This method calculates the deposit returns `depositReturn` based on total return, takes `_stEthAddress` as address of token.
+
+<details>
+
+Sets a `totalReturn` value which is calculated using `calculateTotalReturn`. If `totalReturn` or `balanceLastEpoch` is 0 then `depositReturn` is also 0.
+
+Else `depositReturn` is calculated using:
+
+(`totalReturn` \* (( total funds of that specific token \* 100000) / `balanceOf` that token inside `EnderTreasury` + `instaDappDepositValuations` - `totalReturn`)) / 100000
+
+```javascript
+depositReturn =
+  (totalReturn *
+    ((fundsInfo[_stEthAddress] * 100000) /
+      (IERC20(_stEthAddress).balanceOf(address(this)) +
+        instaDappDepositValuations -
+        totalReturn))) /
+  100000
+```
+
+Full code:
+
+<details>
+
+```javascript
+function calculateDepositReturn(
+        address _stEthAddress
+    ) public view returns (uint256 depositReturn) {
+        uint256 totalReturn = calculateTotalReturn(_stEthAddress);
+        if (totalReturn == 0 || balanceLastEpoch == 0) {
+            depositReturn = 0;
+        } else {
+            //here we have to multiply 100000and dividing so that the balanceLastEpoch < fundsInfo[_stEthAddress].depositFunds
+            depositReturn =
+                (totalReturn *
+                    ((fundsInfo[_stEthAddress] * 100000) /
+                        (IERC20(_stEthAddress).balanceOf(address(this)) +
+                            instaDappDepositValuations -
+                            totalReturn))) /
+                100000;
+        }
+    }
+```
+
+</details>
+</details>
