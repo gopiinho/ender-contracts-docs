@@ -4,6 +4,97 @@ This report serves the purpose of describing the code used in `EnderTreasury.sol
 
 <br>
 
+# Contract Flow
+
+This is how the functionality of this contract starts off with:
+
+  <br>
+  
+### Deposits & Withdrawals
+
+#### `Deposit`
+
+- The function `EnderBond::deposit`() is called in `EnderBond` contract, which transfers the deposited funds to `EnderTreasury` and calls `_deposit`
+- `EnderBond::_deposit`() triggers `depositTreasury()` in treasury, passing in the deposit details as `param` and `amountRequired` is calculated using `EnderBond::getLoopCount`(). If this `amountRequired` is greater than 0 then we withdraw that amount from strategy using `withdrawFromStrategy`, else we update `epochDeposit` and `fundsInfo` mapping, which tracks amount of tokens that are deposited per token address.
+
+#### `Withdrawal`
+
+- The `withdraw()` function is called inside of `EnderBond::_withdraw()`.
+- Its checked of amount to be withdrawn is greater than what treasury balance has then we withdraw from strategies, else
+- `epochWithdrawl` is increased by the token amount and the `fundsInfo` of that token is subtracted by that amount.
+- `_transferFunds()` is a the function actually responsible for sending the asset to the user.
+
+  <br>
+
+### Strategies
+
+- **Desposits** in strategies are then made with `depositInStrategy()` . Function lets the treasury sends the funds to Instadapp lite. The deposit amount is added in that strategy specific total depoit. In case of v1 `instaDappDepositValuations` will keep track of it.
+
+> `NOTE`: Function `depositInStrategy` is public without any msg.sender = owner check.
+
+- `totalAssetStakedInStrategy` mapping tracks all the staked tokens in all strategies, its key is `_asset` address.
+
+- **Withdrawals** in strategies are handled in a similar fashion, `withdrawFromStrategy()` is used to withdraw from specified strategy. The withdrawal amount `_withdrawAmt` will be subtracted from `totalAssetStakedInStrategy` with that `_asset` as key.
+
+  <br>
+
+### Returns
+
+- Total returns are calculated in `calculateTotalReturn()`. We calculate `totalReturn` by calling is calculated by getting stEth balance of `EnderStaking` contract and we add `epochWithdrawal` which is all the withdrawals added together, also add `instaDappDepositValuations` which is total amount of deposit in our strategy, also add `stReturn` and subracts both `epochDeposit` and `balanceLastEpoch`.
+
+- Meanwhile to calculate the `depositReturns` which is all the rewards collected on bonded assets. First we calculate `totalReturn` using the previously mentioned function. The math for this return is like - `totalReturn` is multiplied by ( `fundsInfo` of that token \* 100000 ) / total balance of that asset in our `EnderTreasury` contreact + `instaDappDepositValuations` - `totalReturn` and all of the above calculation is divided by `100000`.
+
+<details>
+
+```javascript
+depositReturn =
+  (totalReturn *
+    ((fundsInfo[_stEthAddress] * 100000) /
+      (IERC20(_stEthAddress).balanceOf(address(this)) +
+        instaDappDepositValuations -
+        totalReturn))) /
+  100000
+```
+
+</details>
+
+<br>
+
+### Rebase Rewards
+
+The rebasing rewards are calculated inside `stakeRebasingReward()` method. This is called by our `EnderStaking` contract during `EnderStaking::epochStakingReward()` and returns `rebaseReward`. It takes `_tokenAddress` as input.
+
+Values required to calculate `rebaseReward` are calculated through:
+
+- `bondReturn` - the number of END tokens minted is called on `EnderBond::endMint()`.
+- `depositReturn` - by running `calculateDepositReturn` using `_tokenAddress`.
+- `balanceLastEpoch` - by checking current token balance of `_tokenAddress` in our `EnderTreasury` contract.
+- `ethPrice` and `priceEnd` are provided by the oracle.
+- update `depositReturn` and `bondReturn` by multiplying the `ethPrice` and `priceEnd` and divide by (10 ** `ethDecimal`) and (10 ** `endDecimal`) respectively.
+
+<details>
+
+```javascript
+depositReturn = (ethPrice * depositReturn) / 10 ** ethDecimal
+bondReturn = (priceEnd * bondReturn) / 10 ** endDecimal
+```
+
+</details>
+
+- `rebaseReward` are updated by ( `depositReturn` + ((`depositReturn` \* `nominalYield`) / 10000) - `bondReturn`).
+- `rebaseReward` is again updated, multiplaying its value to 10 \*\* ethDecimal divided by `priceEnd`.
+  > rebaseReward = ((rebaseReward \* 10 \*\* ethDecimal) / priceEnd);
+
+After calculating this final value of `rebaseReward` rest of the state variables are updates, like `epochWithdrawl` and `epochDeposit` is set to 0, `endMint` is also set to 0 using `EnderBond::resetEndMint()` nad `instaDappLastValuation` is updated and `instaDappWithdrawlValuations` and `instaDappDepositValuations` is also both set to 0.
+
+The calculation of `rebaseReward` is important because the return value decides the amount of `END` minted during `EnderStaking::epochStakingReward()` for `EnderStaking` contract.
+
+<br>
+
+### Withdrawals
+
+<br>
+
 ## Key Features
 
 Purpose of `EnderTreasury` is to hold the bond assets, deposit them to strategies and keeping track of the assets and mint END tokens for the user.
