@@ -91,10 +91,6 @@ The calculation of `rebaseReward` is important because the return value decides 
 
 <br>
 
-### Withdrawals
-
-<br>
-
 ## Key Features
 
 Purpose of `EnderTreasury` is to hold the bond assets, deposit them to strategies and keeping track of the assets and mint END tokens for the user.
